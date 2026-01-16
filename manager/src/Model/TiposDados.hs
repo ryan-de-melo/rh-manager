@@ -1,6 +1,7 @@
 module Model.TiposDados where
 
-import Data.Time(Day)
+import Data.Time(Day, TimeOfDay)
+import qualified Data.Map as Map
 
 type CPF = String
 type Id = Int
@@ -50,3 +51,18 @@ data SistemaBancoDadosRH = SistemaBancoDadosRH {
     cargos :: [Cargo],
     departamento :: [Departamento]
 } deriving (Show, Read)
+
+data Modalidade = Presencial | Remoto deriving (Show, Read, Eq)
+
+data Presenca = Presenca {
+    idDepartamento :: Id,
+    tipoPresenca :: Modalidade,
+    checkIn :: TimeOfDay,
+    checkOut :: TimeOfDay,
+    compareceu :: Bool,
+    justificativa :: String
+} deriving (Show, Read, Eq)
+
+data SistemaDePresenca = SistemaDePresenca {
+    presencasRegistradas :: Map.Map CPF (Map.Map Day Presenca)
+} deriving (Show, Read, Eq)
