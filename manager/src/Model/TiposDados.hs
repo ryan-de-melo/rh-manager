@@ -66,3 +66,12 @@ data Presenca = Presenca {
 data SistemaDePresenca = SistemaDePresenca {
     presencasRegistradas :: Map.Map CPF (Map.Map Day Presenca)
 } deriving (Show, Read, Eq)
+
+data TiposDeLicenca = Casamento | Maternidade | Paternidade | Atestado | Luto | DoacaoSangue deriving (Show, Read, Eq)
+
+data Licenca = Licenca {
+    tipoLicensa :: TiposDeLicenca,
+    dataInicio :: Day,
+    dataFim :: Day,
+    descricao :: String
+} deriving (Show, Read, Eq)

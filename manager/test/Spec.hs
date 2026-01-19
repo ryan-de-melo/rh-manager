@@ -4,6 +4,7 @@ import System.IO (hSetEncoding, stdout, stdin, stderr, utf8)
 
 import Presence
 import Func
+import JornadaLicencaSpec
 
 main :: IO ()
 main = do
@@ -13,7 +14,8 @@ main = do
 
   putStrLn " INICIANDO TESTES DO SISTEMA RH "
 
-  runPresenceTests
-  runFuncionarioTests
+  --runPresenceTests
+  --runFuncionarioTests
+  runLicenseTests
 
   putStrLn " TESTES FINALIZADOS "

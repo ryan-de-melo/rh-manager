@@ -28,7 +28,8 @@ library
       Lib,
       Model.TiposDados,
       Controller.GerenciaFuncionarios,
-      Controller.ControladorPresenca
+      Controller.ControladorPresenca,
+      Controller.JornadaLicenca
   other-modules:
       Paths_manager
   autogen-modules:
