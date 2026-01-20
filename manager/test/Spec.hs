@@ -5,6 +5,7 @@ import System.IO (hSetEncoding, stdout, stdin, stderr, utf8)
 import Presence
 import Func
 import JornadaLicencaSpec
+import FeriasTests
 
 main :: IO ()
 main = do
@@ -17,5 +18,6 @@ main = do
   runPresenceTests
   runFuncionarioTests
   runLicenseTests
+  runFeriasTests
 
   putStrLn " TESTES FINALIZADOS "
