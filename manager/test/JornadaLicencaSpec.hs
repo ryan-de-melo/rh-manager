@@ -57,6 +57,66 @@ licencaDatasInvertidasTeste = do
     "Licença com datas invertidas foi rejeitada."
 
 
+-- Testes para Ciclo de Folga
+
+ultimaFolgaData, dataFolgaValida, dataFolgaInvalida :: Day
+ultimaFolgaData = fromGregorian 2024 6 1
+dataFolgaValida = fromGregorian 2024 6 5   -- 4 dias após últimaFolga (válido < 7 dias)
+dataFolgaInvalida = fromGregorian 2024 6 10 -- 9 dias após últimaFolga (inválido >= 7 dias)
+
+cicloFolgaValido :: CicloFolga
+cicloFolgaValido = Folga
+  { ultimaFolga = ultimaFolgaData
+  , dataFolga = dataFolgaValida
+  }
+
+cicloFolgaInvalido :: CicloFolga
+cicloFolgaInvalido = Folga
+  { ultimaFolga = ultimaFolgaData
+  , dataFolga = dataFolgaInvalida
+  }
+
+cicloFolgaMesmoDia :: CicloFolga
+cicloFolgaMesmoDia = Folga
+  { ultimaFolga = ultimaFolgaData
+  , dataFolga = ultimaFolgaData
+  }
+
+cicloFolgaDatasInvertidas :: CicloFolga
+cicloFolgaDatasInvertidas = Folga
+  { ultimaFolga = fromGregorian 2024 6 10
+  , dataFolga = fromGregorian 2024 6 1
+  }
+
+
+verificaLegalidadeCicloValidoTeste :: IO ()
+verificaLegalidadeCicloValidoTeste = do
+  assert (verificaLegalidadeDeCicloFolga cicloFolgaValido)
+    "Ciclo de folga válido (4 dias) foi aceito."
+
+verificaLegalidadeCicloInvalidoTeste :: IO ()
+verificaLegalidadeCicloInvalidoTeste = do
+  assert (not (verificaLegalidadeDeCicloFolga cicloFolgaInvalido))
+    "Ciclo de folga inválido (9 dias >= 7) foi rejeitado."
+
+verificaLegalidadeCicloMesmoDiaTeste :: IO ()
+verificaLegalidadeCicloMesmoDiaTeste = do
+  assert (verificaLegalidadeDeCicloFolga cicloFolgaMesmoDia)
+    "Ciclo de folga com mesmo dia (0 dias) foi aceito."
+
+verificaLegalidadeCicloDatasInvertidosTeste :: IO ()
+verificaLegalidadeCicloDatasInvertidosTeste = do
+  assert (not (verificaLegalidadeDeCicloFolga cicloFolgaDatasInvertidas))
+    "Ciclo de folga com datas invertidas foi rejeitado."
+
+
+buscaDiaDeFolgaComDiasFaltantesTeste :: IO ()
+buscaDiaDeFolgaComDiasFaltantesTeste = do
+  -- Teste para quando diasFaltantes > 0 (deve retornar Just com a data de folga)
+  -- Nota: Este teste assume uma implementação de diasFaltantes que não está visível aqui
+  let resultado = buscaDiaDeFolga cicloFolgaValido
+  assert (resultado == Just dataFolgaValida)
+    "Busca de dia de folga com dias faltantes retornou a data corretamente."
 
 
 
@@ -68,3 +128,10 @@ runLicenseTests = do
   licencaValidaTeste
   licencaInvalidaPorDiasTeste
   licencaDatasInvertidasTeste
+
+  putStrLn "\n--- Testes de Ciclo de Folga ---"
+
+  verificaLegalidadeCicloValidoTeste
+  verificaLegalidadeCicloInvalidoTeste
+  verificaLegalidadeCicloMesmoDiaTeste
+  verificaLegalidadeCicloDatasInvertidosTeste
