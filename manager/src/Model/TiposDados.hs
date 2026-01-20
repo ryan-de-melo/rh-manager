@@ -76,11 +76,10 @@ data Licenca = Licenca {
     descricao :: String
 } deriving (Show, Read, Eq)
 
-
-
-
-
-
+data CicloFolga = Folga {
+    ultimaFolga :: Day,
+    dataFolga :: Day
+} deriving (Show, Read, Eq)
 
 
 
