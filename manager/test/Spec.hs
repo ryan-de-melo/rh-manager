@@ -18,6 +18,7 @@ main = do
 
   runPresenceTests
   runFuncionarioTests
+  runAfastamentoTests
   runLicenseTests
   runFeriasTests
 

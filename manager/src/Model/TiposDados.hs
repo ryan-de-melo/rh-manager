@@ -78,8 +78,8 @@ data Afastamento = Afastamento {
     idAfastamento :: Id,
     cpfFuncionario :: CPF,
     tipoAfastamento :: TipoAfastamento,
-    dataInicio :: Day,
-    dataFim :: Day,
+    dataInicioAfastamento :: Day,
+    dataFimAfastamento :: Day,
     descricaoAfastamento :: String,
     documentacao :: Maybe Documentacao
 } deriving (Show, Read, Eq)
