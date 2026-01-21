@@ -37,21 +37,21 @@ admitirFuncionario cpf admissao ger
       in Right ger { registros = Map.insert cpf registro (registros ger) }
 
 atualizarStatusFerias :: Day -> Ferias -> Ferias
-atualizarStatusFerias hoje f
-  | hoje < inicioFerias f = f { statusFerias = Planejada }
-  | hoje > fimFerias f = f { statusFerias = Concluida }
+atualizarStatusFerias dataReferencia f
+  | dataReferencia < inicioFerias f = f { statusFerias = Planejada }
+  | dataReferencia > fimFerias f = f { statusFerias = Concluida }
   | otherwise = f { statusFerias = EmAndamento }
 
 atualizarStatusCiclo :: Day -> CicloFerias -> CicloFerias
-atualizarStatusCiclo hoje ciclo
-  | hoje > fimConcessivo (periodoConcessivo ciclo) && saldoDias ciclo > 0 = ciclo { statusCiclo = Vencido }
+atualizarStatusCiclo dataReferencia ciclo
+  | dataReferencia > fimConcessivo (periodoConcessivo ciclo) && saldoDias ciclo > 0 = ciclo { statusCiclo = Vencido }
   | saldoDias ciclo == 0 = ciclo { statusCiclo = Concluido }
   | otherwise = ciclo { statusCiclo = Vigente }
 
 atualizarCiclo :: Day -> CicloFerias -> CicloFerias
-atualizarCiclo hoje ciclo =
-  atualizarStatusCiclo hoje ciclo { 
-      feriasDoCiclo = map (atualizarStatusFerias hoje) (feriasDoCiclo ciclo)
+atualizarCiclo dataReferencia ciclo =
+  atualizarStatusCiclo dataReferencia ciclo { 
+      feriasDoCiclo = map (atualizarStatusFerias dataReferencia) (feriasDoCiclo ciclo)
     }
 
 calcularSaldoPorFaltas :: Int -> Int
@@ -62,43 +62,90 @@ calcularSaldoPorFaltas f
   | f <= 32  = 12
   | otherwise = 0
 
-cicloPorData :: Day -> [CicloFerias] -> ( [CicloFerias], CicloFerias, [CicloFerias] )
-cicloPorData dia ciclos =
-  let (antes, atual:depois) =
-        break (\c ->
-          dia >= inicioAquisitivo (periodoAquisitivo c) &&
-          dia <  fimAquisitivo    (periodoAquisitivo c)
-        ) ciclos
-  in (antes, atual, depois)
+cicloPorDataAquisitiva
+  :: Day
+  -> [CicloFerias]
+  -> Either String ([CicloFerias], CicloFerias, [CicloFerias])
+cicloPorDataAquisitiva _ [] =
+  Left "Nenhum ciclo aquisitivo encontrado para a data informada."
 
-aplicarFaltasNoCiclo :: Int -> CicloFerias -> CicloFerias
-aplicarFaltasNoCiclo novas ciclo =
+cicloPorDataAquisitiva dia (c:cs)
+  | dia < inicioAquisitivo (periodoAquisitivo c) =
+      Left "Data anterior ao início de qualquer período aquisitivo."
+  | dia >= inicioAquisitivo (periodoAquisitivo c)
+    && dia < fimAquisitivo (periodoAquisitivo c) =
+      Right ([], c, cs)
+  | otherwise = do
+      (antes, ciclo, depois) <- cicloPorDataAquisitiva dia cs
+      Right (c : antes, ciclo, depois)
+
+
+cicloPorDataConcessiva
+  :: Day
+  -> [CicloFerias]
+  -> Either String ([CicloFerias], CicloFerias, [CicloFerias])
+cicloPorDataConcessiva _ [] =
+  Left "Nenhum ciclo concessivo encontrado para a data informada."
+
+cicloPorDataConcessiva dia (c:cs)
+  | dia < inicioConcessivo (periodoConcessivo c) =
+      Left "Data anterior ao início de qualquer período concessivo."
+  | dia >= inicioConcessivo (periodoConcessivo c)
+    && dia <= fimConcessivo (periodoConcessivo c) =
+      Right ([], c, cs)
+  | otherwise = do
+      (antes, ciclo, depois) <- cicloPorDataConcessiva dia cs
+      Right (c : antes, ciclo, depois)
+
+
+aplicarFaltaNoCiclo :: Int -> CicloFerias -> CicloFerias
+aplicarFaltaNoCiclo novas ciclo =
   let totalFaltas = faltas ciclo + novas
       novoSaldo   = calcularSaldoPorFaltas totalFaltas
   in ciclo { 
       faltas = totalFaltas, saldoDias = min (saldoDias ciclo) novoSaldo
     }
 
-registrarFaltas :: Day -> Int -> RegistroFeriasFuncionario -> Either String RegistroFeriasFuncionario
-registrarFaltas dia novas reg =
-  let (antes, ciclo, depois) =
-        cicloPorData dia (ciclos reg)
-      cicloAtualizado =
-        aplicarFaltasNoCiclo novas ciclo
-  in Right reg { ciclos = antes ++ cicloAtualizado : depois }
+registrarFalta
+  :: Day -> RegistroFeriasFuncionario
+  -> Either String RegistroFeriasFuncionario
+registrarFalta dia reg = do
+  (antes, ciclo, depois) <-
+    cicloPorDataAquisitiva dia (ciclos reg)
 
-registrarFerias :: CPF -> Ferias -> Day -> GerenciadorFerias -> Either String GerenciadorFerias
-registrarFerias cpf ferias hoje ger = do
-  reg <- maybe
-           (Left "Funcionário não encontrado.")
-           Right
-           (Map.lookup cpf (registros ger))
-  let (antes, ciclo, depois) =
-        cicloPorData (inicioFerias ferias) (ciclos reg)
-  cicloFinal <- processarFerias hoje ferias ciclo
+  let cicloAtualizado =
+        aplicarFaltaNoCiclo 1 ciclo
+
+  Right reg {
+    ciclos = antes ++ cicloAtualizado : depois
+  }
+
+
+registrarFerias
+  :: CPF -> Ferias -> Day -> GerenciadorFerias
+  -> Either String GerenciadorFerias
+registrarFerias cpf ferias dataReferencia ger = do
+  reg <-
+    maybe
+      (Left "Funcionário não encontrado.")
+      Right
+      (Map.lookup cpf (registros ger))
+
+  (antes, ciclo, depois) <-
+    cicloPorDataConcessiva
+      (inicioFerias ferias)
+      (ciclos reg)
+
+  cicloFinal <- processarFerias dataReferencia ferias ciclo
+
   let regAtualizado =
         reg { ciclos = antes ++ cicloFinal : depois }
-  Right ger { registros = Map.insert cpf regAtualizado (registros ger) }
+
+  Right ger {
+    registros =
+      Map.insert cpf regAtualizado (registros ger)
+  }
+
 
 validarDireitoFerias :: Ferias -> CicloFerias -> Either String ()
 validarDireitoFerias ferias ciclo
@@ -111,9 +158,9 @@ validarSaldo custo ciclo
   | otherwise = Right ()
 
 aplicarFeriasNoCiclo :: Day -> Ferias -> CicloFerias -> CicloFerias
-aplicarFeriasNoCiclo hoje ferias ciclo =
+aplicarFeriasNoCiclo dataReferencia ferias ciclo =
   let cicloAtualizado =
-        atualizarCiclo hoje ciclo
+        atualizarCiclo dataReferencia ciclo
       custo = diasUtilizados ferias
   in cicloAtualizado { 
     saldoDias = saldoDias cicloAtualizado - custo, 
@@ -121,16 +168,20 @@ aplicarFeriasNoCiclo hoje ferias ciclo =
   }
 
 processarFerias :: Day -> Ferias -> CicloFerias -> Either String CicloFerias
-processarFerias hoje ferias ciclo = do
+processarFerias dataReferencia ferias ciclo = do
   validarDireitoFerias ferias ciclo
   let cicloAtualizado =
-        atualizarCiclo hoje ciclo
+        atualizarCiclo dataReferencia ciclo
       feriasTotais =
         ferias : feriasDoCiclo cicloAtualizado
+      custo =
+        diasUtilizados ferias
   validarFracionamento feriasTotais
-  let custo = diasUtilizados ferias 
   validarSaldo custo cicloAtualizado
-  Right (aplicarFeriasNoCiclo hoje ferias ciclo)
+  Right cicloAtualizado {
+    saldoDias = saldoDias cicloAtualizado - custo,
+    feriasDoCiclo = ferias : feriasDoCiclo cicloAtualizado
+  }
 
 sobrepoe :: Ferias -> Ferias -> Bool
 sobrepoe f1 f2 =
@@ -142,17 +193,26 @@ haSobreposicao ferias =
 
 validarFracionamento :: [Ferias] -> Either String ()
 validarFracionamento ferias
-  | length ferias > 3 = Left "Férias não podem ser fracionadas em mais de 3 períodos."
-  | haSobreposicao ferias = Left "Períodos de férias não podem se sobrepor."
-  | not (any ((>= 14) . diasUtilizados) ferias) = Left "Um dos períodos de férias deve ter no mínimo 14 dias."
-  | any ((< 5) . diasUtilizados) ferias = Left "Nenhum período de férias pode ter menos de 5 dias."
-  | otherwise = Right ()
+  | qtd > 3 =
+      Left "Férias não podem ser fracionadas em mais de 3 períodos."
+  | haSobreposicao ferias =
+      Left "Períodos de férias não podem se sobrepor."
+  | qtd == 1 && not (any ((>= 14) . diasUtilizados) ferias) =
+      Left "Férias únicas devem ter no mínimo 14 dias."
+  | qtd >= 2 && qtd <= 3 && not (any ((>= 14) . diasUtilizados) ferias) =
+      Left "Em férias fracionadas, um dos períodos deve ter no mínimo 14 dias."
+  | qtd >= 2 && any ((< 5) . diasUtilizados) ferias =
+      Left "Em férias fracionadas, nenhum período pode ter menos de 5 dias."
+  | otherwise =
+      Right ()
+  where
+    qtd = length ferias
 
 feriasVencidas :: Day -> CicloFerias -> Bool
-feriasVencidas hoje ciclo =
-  hoje > fimConcessivo (periodoConcessivo ciclo) && saldoDias ciclo > 0              
+feriasVencidas dataReferencia ciclo =
+  dataReferencia > fimConcessivo (periodoConcessivo ciclo) && saldoDias ciclo > 0              
 
 temDireitoAFerias :: Day -> CicloFerias -> Bool
-temDireitoAFerias hoje ciclo =
-  hoje >= fimAquisitivo (periodoAquisitivo ciclo)
+temDireitoAFerias dataReferencia ciclo =
+  dataReferencia >= fimAquisitivo (periodoAquisitivo ciclo)
   && saldoDias ciclo > 0
