@@ -9,9 +9,13 @@ assert condicao msg
   | condicao  = putStrLn $ "Testes PASSARAM:  " ++ msg
   | otherwise = putStrLn $ "Testes FALHARAM: " ++ msg
 
+--
+-- SETUP PARA OS TESTES DE LICENÇA
+--
+
 inicio1, fimValido, fimInvalido, fimInvertido :: Day
 inicio1      = fromGregorian 2024 6 1
-fimValido    = fromGregorian 2024 6 4   -- 3 dias
+fimValido    = fromGregorian 2024 6 4
 fimInvalido  = fromGregorian 2024 6 10
 fimInvertido = fromGregorian 2024 5 30
 
@@ -56,13 +60,14 @@ licencaDatasInvertidasTeste = do
   assert (not (verificarSeLicencaValida licencaDatasInvertidas))
     "Licença com datas invertidas foi rejeitada."
 
-
--- Testes para Ciclo de Folga
+--
+-- SETUP PARA OS TESTES DE CICLO DE FOLGA
+--
 
 ultimaFolgaData, dataFolgaValida, dataFolgaInvalida :: Day
 ultimaFolgaData = fromGregorian 2024 6 1
-dataFolgaValida = fromGregorian 2024 6 5   -- 4 dias após últimaFolga (válido < 7 dias)
-dataFolgaInvalida = fromGregorian 2024 6 10 -- 9 dias após últimaFolga (inválido >= 7 dias)
+dataFolgaValida = fromGregorian 2024 6 5   
+dataFolgaInvalida = fromGregorian 2024 6 10
 
 cicloFolgaValido :: CicloFolga
 cicloFolgaValido = Folga
@@ -112,8 +117,6 @@ verificaLegalidadeCicloDatasInvertidosTeste = do
 
 buscaDiaDeFolgaComDiasFaltantesTeste :: IO ()
 buscaDiaDeFolgaComDiasFaltantesTeste = do
-  -- Teste para quando diasFaltantes > 0 (deve retornar Just com a data de folga)
-  -- Nota: Este teste assume uma implementação de diasFaltantes que não está visível aqui
   let resultado = buscaDiaDeFolga cicloFolgaValido
   assert (resultado == Just dataFolgaValida)
     "Busca de dia de folga com dias faltantes retornou a data corretamente."
