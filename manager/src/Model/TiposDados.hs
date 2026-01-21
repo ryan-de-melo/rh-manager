@@ -82,7 +82,16 @@ data CicloFolga = Folga {
 } deriving (Show, Read, Eq)
 
 
+data JornadaDiaria = JornadaDiaria {
+    inicio :: Int, -- hora (0-23)
+    fim :: Int  -- hora (0-23)
+} deriving (Show, Read, Eq)
 
+data EscalaSemanal = EscalaSemanal {
+    idFuncionarioSemanal :: CPF,
+    diasTrabalho :: [Day],
+    jornadas :: [JornadaDiaria]
+} deriving (Show, Read, Eq)
 
 data StatusFerias = Planejada| EmAndamento| Concluida deriving (Show, Read, Eq)
 

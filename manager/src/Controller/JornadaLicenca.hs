@@ -2,7 +2,8 @@ module Controller.JornadaLicenca where
 
 import Model.TiposDados
 import Data.Time (Day, diffDays)
-import Data.Bool (Bool(False))
+import Data.Bool (Bool(False, True))
+import Model.TiposDados (JornadaDiaria)
 
 -- Licença
 
@@ -46,3 +47,36 @@ atualizarCicloFolga futuraFolga cicloFolga
                             dataFolga = futuraFolga
                         }
     | otherwise = Nothing
+
+
+calculaHorasTrabalhadasPorDia :: JornadaDiaria -> Int
+calculaHorasTrabalhadas jornadaDiaria =
+    fim jornadaDiaria - inicio jornadaDiaria
+
+calculaHorasTrabalhadasPorSemana :: EscalaSemanal -> Int
+calculaHorasTrabalhadasPorSemana escalaSemanal =
+    sum (map calculaHorasTrabalhadasPorDia (jornadas escalaSemanal))
+
+
+verificaEscalaValida :: EscalaSemanal -> Bool
+verificaEscalaValida escala =
+    length (diasTrabalho escala) == length (jornadas escala)
+    && all verificaJornadaValida (jornadas escala)
+
+verificaJornadaValida :: JornadaDiaria -> Bool
+verificaJornadaValida jornada =
+    inicio jornada >= 0 &&
+    fim jornada <= 23 &&
+    fim jornada > inicio jornada
+
+
+verificaLegalidadeCargaHorariaDiaria :: JornadaDiaria -> Bool
+verificaLegalidadeCargaHorariaDiaria jornadaDiaria =
+    let carga = calculaHorasTrabalhadas jornadaDiaria
+    in carga > 0 && carga <= 8
+
+verificaLegalidadeCargaHorariaSemanal :: EscalaSemanal -> Bool
+verificaLegalidadeCargaHorariaSemanal escalaSemanal
+    | not (verificaEscalaValida escalaSemanal) = False
+    | calculaHorasTrabalhadasPorSemana escalaSemanal <= 44 = True
+    | otherwise = False
