@@ -1,6 +1,8 @@
-module Main (main) where
+module Main where
 
-import Lib
+import Util.FeriasService
 
 main :: IO ()
-main = someFunc
+main = do
+  putStrLn "Iniciando sistema de gerenciamento de férias..."
+  iniciarSistemaFerias
