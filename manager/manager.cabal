@@ -31,6 +31,8 @@ library
       Controller.JornadaLicenca
       Lib
       Model.TiposDados
+      Util.FeriasService
+      Util.Utilitarios
   other-modules:
       Paths_manager
   autogen-modules:
