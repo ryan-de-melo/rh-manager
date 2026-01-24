@@ -53,6 +53,11 @@ data SistemaBancoDadosRH = SistemaBancoDadosRH {
     afastamentos  :: [Afastamento]
 } deriving (Show, Read)
 
+data SistemaJornadaLicenca = SistemaJornadaLicenca {
+    licencas :: [Licenca],
+    jornadasSemanais :: [EscalaSemanal]
+} deriving (Show, Read, Eq)
+
 data Modalidade = Presencial | Remoto deriving (Show, Read, Eq)
 
 data Presenca = Presenca {
@@ -89,6 +94,7 @@ data Afastamento = Afastamento {
 data TiposDeLicenca = Casamento | Maternidade | Paternidade | Atestado | Luto | DoacaoSangue deriving (Show, Read, Eq)
 
 data Licenca = Licenca {
+    funcionarioLicenca :: CPF,
     tipoLicensa :: TiposDeLicenca,
     dataInicio :: Day,
     dataFim :: Day,
@@ -109,7 +115,8 @@ data JornadaDiaria = JornadaDiaria {
 data EscalaSemanal = EscalaSemanal {
     idFuncionarioSemanal :: CPF,
     diasTrabalho :: [Day],
-    jornadas :: [JornadaDiaria]
+    jornadas :: [JornadaDiaria],
+    cicloFolga :: CicloFolga
 } deriving (Show, Read, Eq)
 
 data StatusFerias = Planejada| EmAndamento| Concluida deriving (Show, Read, Eq)
