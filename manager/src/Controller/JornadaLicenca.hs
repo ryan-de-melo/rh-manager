@@ -61,6 +61,9 @@ verificaEscalaValida :: EscalaSemanal -> Bool
 verificaEscalaValida escala =
     length (diasTrabalho escala) == length (jornadas escala)
     && all verificaJornadaValida (jornadas escala)
+    && all verificaLegalidadeCargaHorariaDiaria (jornadas escala)
+    && calculaHorasTrabalhadasPorSemana escala <= 44
+    && verificaLegalidadeDeCicloFolga (cicloFolga escala)
 
 verificaJornadaValida :: JornadaDiaria -> Bool
 verificaJornadaValida jornada =
