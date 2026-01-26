@@ -4,6 +4,7 @@ import Data.List(find)
 import Model.TiposDados
 import Data.Char(isDigit)
 import Controller.ConsultasBasicas
+import Controller.GerenciaDepartamentos
 
 cpfValido :: String -> Bool
 cpfValido cpf = (length cpf == 11) && (all isDigit cpf)
@@ -25,14 +26,34 @@ adicionarFuncionarioValidado
 adicionarFuncionarioValidado novo cargos departamentos funcionarios
     | not (cpfValido (idFunc novo)) =
         Left "Erro: CPF inválido! Deve conter 11 dígitos."
+
     | existeFuncionario (idFunc novo) funcionarios =
         Left "Erro: Já existe funcionário com esse CPF!"
+
     | not (existeCargo (cargoFunc novo) cargos) =
         Left "Erro: Cargo informado não existe!"
-    | not (existeDepartamento (deptoFunc novo) departamentos) =
+
+    | departamentoInexistente =
         Left "Erro: Departamento informado não existe!"
+
+    | departamentoLotado =
+        Left "Erro: Departamento atingiu o limite máximo de funcionários!"
+
     | otherwise =
         adicionarFuncionario novo funcionarios
+  where
+    idDeptoFunc = deptoFunc novo
+
+    departamentoInexistente =
+        not (existeDepartamento idDeptoFunc departamentos)
+
+    departamentoLotado =
+        case buscarDepartamento idDeptoFunc departamentos of
+            Nothing -> True
+            Just depto ->
+                quantidadeFuncionariosNoDepto idDeptoFunc funcionarios
+                >= qtdFuncionarioDepto depto
+
 
 
 --  Recebe um funcionário com ID já existente na lista e com novos dados. Retira esse "antigo" e adiciona o "novo" funcionário.

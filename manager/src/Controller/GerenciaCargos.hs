@@ -9,7 +9,7 @@ adicionarCargo novoCargo listaCargos
         Left "Erro: Já existe um cargo com o ID informado!"
     | salario novoCargo < 0 =
         Left "Erro: Salário não pode ser negativo!"
-    | cargaHoraria novoCargo <= 0 =
+    | cargaHoraria novoCargo <= 0 || cargaHoraria novoCargo > 44 =
         Left "Erro: Carga horária inválida!"
     | otherwise =
         Right (novoCargo : listaCargos)
@@ -24,12 +24,10 @@ adicionarCargoValidado novoCargo departamentos cargos
         Left "Erro: Departamento associado não existe!"
     | existeCargo (idCargo novoCargo) cargos =
         Left "Erro: Já existe cargo com esse ID!"
-    | salario novoCargo < 0 =
+    | salario novoCargo < 0  =
         Left "Erro: Salário não pode ser negativo!"
-    | cargaHoraria novoCargo <= 0 =
-        Left "Erro: Carga horária inválida!"
     | otherwise =
-        Right (novoCargo : cargos)
+        adicionarCargo novoCargo cargos
 
 modificarCargo :: Cargo -> [Cargo] -> Either String [Cargo]
 modificarCargo _ [] =

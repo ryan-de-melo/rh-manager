@@ -187,6 +187,7 @@ feriasVencidas dataReferencia ciclo =
   dataReferencia > fimConcessivo (periodoConcessivo ciclo) && saldoDias ciclo > 0              
 
 temDireitoAFerias :: Day -> CicloFerias -> Bool
-temDireitoAFerias dataReferencia ciclo =
-  dataReferencia >= fimAquisitivo (periodoAquisitivo ciclo)
+temDireitoAFerias ref ciclo =
+  ref >= fimAquisitivo (periodoAquisitivo ciclo)
+  && ref <= fimConcessivo (periodoConcessivo ciclo)
   && saldoDias ciclo > 0

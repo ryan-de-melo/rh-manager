@@ -24,5 +24,6 @@ existeCargo idBuscado (c:cs)
     | idCargo c == idBuscado = True
     | otherwise = existeCargo idBuscado cs
 
-
-    
+quantidadeFuncionariosNoDepto :: Id -> [Funcionario] -> Int
+quantidadeFuncionariosNoDepto idDepto =
+    length . filter (\f -> deptoFunc f == idDepto)

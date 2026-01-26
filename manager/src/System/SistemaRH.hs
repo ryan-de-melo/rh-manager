@@ -613,16 +613,20 @@ verificarDireitoService cpf ref ger = do
       Right
       (Map.lookup cpf (registros ger))
 
-  let ciclosAtualizados =
-        map (atualizarCiclo ref)
-          (takeWhile
-            (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
-            (ciclos reg))
+  let ciclosRelevantes =
+        takeWhile
+          (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
+          (ciclos reg)
+
+      ciclosAtualizados =
+        map (atualizarCiclo ref) ciclosRelevantes
 
       ciclosComDireito =
         filter (temDireitoAFerias ref) ciclosAtualizados
 
   Right ciclosComDireito
+
+
 
 registrarFeriasUI :: GerenciadorFerias -> IO GerenciadorFerias
 registrarFeriasUI ger = do
@@ -651,7 +655,6 @@ verificarDireitoUI ger = do
     Right [] -> msgInfo "Funcionário ainda não possui direito a férias." >> putStrLn ""
     Right cs -> do
       msgSucesso "Funcionário possui direito a férias."
-      mapM_ exibirResumoCiclo cs
 
 criarFerias :: Day -> Day -> Ferias
 criarFerias ini fim =

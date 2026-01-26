@@ -71,9 +71,6 @@ test-suite manager-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Func
-      JornadaLicencaSpec
-      Presence
       Paths_manager
   autogen-modules:
       Paths_manager
