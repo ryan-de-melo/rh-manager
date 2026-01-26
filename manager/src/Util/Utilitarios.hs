@@ -75,3 +75,26 @@ confirmar :: String -> IO Bool
 confirmar msg = do
   r <- lerLinha (msg ++ " (S/N)")
   return (r == "S" || r == "s")
+
+lerHora :: String -> IO TimeOfDay
+lerHora msg = do
+  putStrLn msg
+  h <- lerInt "Hora (0-23)"
+  m <- lerInt "Minuto (0-59)"
+
+  if h < 0 || h > 23 || m < 0 || m > 59
+    then msgErro "Horário inválido." >> lerHora msg
+    else return (TimeOfDay h m 0)
+
+pausaEVolta
+  :: (SistemaBancoDadosRH -> IO SistemaBancoDadosRH)
+  -> SistemaBancoDadosRH
+  -> IO SistemaBancoDadosRH
+pausaEVolta f sistema = pause >> f sistema
+
+lerQuantidadePeriodos :: IO Int
+lerQuantidadePeriodos = do
+  n <- lerInt "Quantidade de períodos (2 ou 3)"
+  if n < 2 || n > 3
+    then msgErro "Quantidade inválida." >> putStrLn "" >> lerQuantidadePeriodos
+    else return n

@@ -13,6 +13,7 @@ import Util.Utilitarios
 import Data.Time
 import qualified Data.Map as Map
 import Data.List(find)
+import Model.TiposDados (Afastamento(idAfastamento))
 
 -------------------------------------------------
 -- SISTEMA PRINCIPAL
@@ -207,16 +208,6 @@ menuPresencaLoop sistema = do
     "0" -> return sistema
     _   -> msgErro "Opção inválida." >> pause >> menuPresencaLoop sistema
 
-
--------------------------------------------------
--- AUXILIAR
--------------------------------------------------
-
-pausaEVolta
-  :: (SistemaBancoDadosRH -> IO SistemaBancoDadosRH)
-  -> SistemaBancoDadosRH
-  -> IO SistemaBancoDadosRH
-pausaEVolta f sistema = pause >> f sistema
 
 -------------------------------------------------
 -- FUNCIONÁRIOS - UI
@@ -424,18 +415,17 @@ registrarAfastamentoUI sistema = do
     Left err ->
       msgErro err >> return sistema
 
-    Right (funcs, afs) ->
-      msgSucesso "Afastamento registrado com sucesso."
-        >> return sistema
-             { funcionarios = funcs
-             , afastamentos = afs
-             }
+    Right (funcs, afs) -> do
+      case afs of
+        (a:_) ->
+          putStrLn ("ID do afastamento: " ++ show (idAfastamento a))
 
-tipoExigeDocumentacao :: TipoAfastamento -> Bool
-tipoExigeDocumentacao AfastamentoMedico   = True
-tipoExigeDocumentacao AcidenteDeTrabalho  = True
-tipoExigeDocumentacao AusenciaJustificada = True
-tipoExigeDocumentacao _                   = False
+      msgSucesso "Afastamento registrado com sucesso."
+
+      return sistema
+        { funcionarios = funcs
+          , afastamentos = afs
+        }
 
 obterDocumentacaoObrigatoria :: TipoAfastamento -> IO (Maybe Documentacao)
 obterDocumentacaoObrigatoria tipo
@@ -611,7 +601,352 @@ listarCargosUI sistema =
     else mapM_ exibirCargo (cargos sistema)
 
 -------------------------------------------------
--- LEITURAS
+-- FÉRIAS - UI
+-------------------------------------------------
+
+verificarDireitoService
+  :: CPF -> Day -> GerenciadorFerias -> Either String [CicloFerias]
+verificarDireitoService cpf ref ger = do
+  reg <-
+    maybe
+      (Left "Funcionário não encontrado.")
+      Right
+      (Map.lookup cpf (registros ger))
+
+  let ciclosAtualizados =
+        map (atualizarCiclo ref)
+          (takeWhile
+            (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
+            (ciclos reg))
+
+      ciclosComDireito =
+        filter (temDireitoAFerias ref) ciclosAtualizados
+
+  Right ciclosComDireito
+
+registrarFeriasUI :: GerenciadorFerias -> IO GerenciadorFerias
+registrarFeriasUI ger = do
+  cabecalho "REGISTRO DE FÉRIAS"
+  cpf <- lerCPF
+  fracionada <- lerSN "Férias fracionadas?"
+
+  qtd <- if fracionada then lerQuantidadePeriodos else return 1
+  periodos <- mapM lerPeriodo [1 .. qtd]
+
+  ref <- lerData "Data de referência para validação"
+
+  confirmar "Confirmar registro das férias?" >>= \ok ->
+    if not ok
+      then msgInfo "Registro cancelado." >> putStrLn "" >> return ger
+      else registrarSequencial cpf periodos ref ger
+
+verificarDireitoUI :: GerenciadorFerias -> IO ()
+verificarDireitoUI ger = do
+  cabecalho "VERIFICAÇÃO DE DIREITO A FÉRIAS"
+  cpf <- lerCPF
+  ref <- lerData "Data de referência"
+
+  case verificarDireitoService cpf ref ger of
+    Left err -> msgErro err >> putStrLn ""
+    Right [] -> msgInfo "Funcionário ainda não possui direito a férias." >> putStrLn ""
+    Right cs -> do
+      msgSucesso "Funcionário possui direito a férias."
+      mapM_ exibirResumoCiclo cs
+
+criarFerias :: Day -> Day -> Ferias
+criarFerias ini fim =
+  Ferias ini fim (fromIntegral (diffDays fim ini) + 1) Planejada
+
+registrarSequencial
+  :: CPF -> [(Day, Day)] -> Day -> GerenciadorFerias -> IO GerenciadorFerias
+registrarSequencial _ [] _ ger =
+  msgSucesso "Férias registradas com sucesso." >> putStrLn "" >> return ger
+
+registrarSequencial cpf ((ini, fim):xs) ref ger = do
+  let ferias = criarFerias ini fim
+  case registrarFerias cpf ferias ref ger of
+    Left err -> msgErro err >> putStrLn "" >> return ger
+    Right g  -> registrarSequencial cpf xs ref g
+
+atualizarFeriasComFalta ::
+  CPF ->
+  Day ->
+  GerenciadorFerias ->
+  IO GerenciadorFerias
+atualizarFeriasComFalta cpf dia ger =
+  case Map.lookup cpf (registros ger) of
+    Nothing -> do
+      msgErro "Funcionário não encontrado no sistema de férias."
+      return ger
+    Just reg ->
+      case registrarFalta dia reg of
+        Left err -> do
+          msgErro ("Erro ao registrar falta no sistema de férias: " ++ err)
+          return ger
+        Right regAtualizado ->
+          return ger { registros = Map.insert cpf regAtualizado (registros ger) }
+
+-------------------------------------------------
+-- PRESENÇA - UI
+-------------------------------------------------
+
+registrarPresencaUI :: SistemaBancoDadosRH -> IO SistemaBancoDadosRH
+registrarPresencaUI sistema = do
+  cabecalho "REGISTRO DE PRESENÇA"
+
+  cpf <- lerCPF
+
+  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
+    then do
+      msgErro "Funcionário não encontrado no sistema."
+      return sistema
+    else do
+      dia <- lerData "Data da presença"
+      deptoId <- lerInt "ID do departamento"
+      compareceuFlag <- lerSN "Funcionário compareceu?"
+
+      presenca <- if compareceuFlag
+                   then do
+                     modalidade <- lerModalidade
+                     entrada <- lerHora "Horário de entrada"
+                     saida <- lerHora "Horário de saída"
+                     return Presenca
+                       { idDepartamento = deptoId
+                       , tipoPresenca = modalidade
+                       , checkIn = entrada
+                       , checkOut = saida
+                       , compareceu = True
+                       , justificativa = ""
+                       }
+                   else do
+                     just <- lerLinha "Justificativa (vazio para injustificada)"
+                     return Presenca
+                       { idDepartamento = deptoId
+                       , tipoPresenca = Presencial
+                       , checkIn = midnight
+                       , checkOut = midnight
+                       , compareceu = False
+                       , justificativa = just
+                       }
+
+      let resultadoPres = registrarPresenca cpf dia presenca (sistemaPresenca sistema)
+      sistemaAtualizado <- case resultadoPres of
+        Left err -> do
+          msgErro err
+          return sistema
+        Right presAtualizado -> do
+          msgSucesso "Presença registrada com sucesso."
+
+          let gerFerias = sistemaFerias sistema
+          sistemaComFalta <- if not compareceuFlag
+                             then case Map.lookup cpf (registros gerFerias) of
+                                    Nothing -> do
+                                      msgErro "Funcionário não encontrado no sistema de férias."
+                                      return sistema { sistemaPresenca = presAtualizado }
+                                    Just reg -> case registrarFalta dia reg of
+                                                  Left errF -> do
+                                                    msgErro ("Erro ao registrar falta no sistema de férias: " ++ errF)
+                                                    return sistema { sistemaPresenca = presAtualizado }
+                                                  Right regAtualizado -> do
+                                                    let gerAtualizado = gerFerias { registros = Map.insert cpf regAtualizado (registros gerFerias) }
+                                                    return sistema { sistemaPresenca = presAtualizado
+                                                                   , sistemaFerias = gerAtualizado }
+                             else return sistema { sistemaPresenca = presAtualizado }
+
+          return sistemaComFalta
+
+      return sistemaAtualizado
+
+consultarPresencaUI :: SistemaBancoDadosRH -> IO ()
+consultarPresencaUI sistema = do
+  cabecalho "CONSULTA DE PRESENÇA"
+  cpf <- lerCPF
+  dia <- lerData "Data a consultar"
+
+  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
+    then msgErro "Funcionário não encontrado no sistema."
+    else case buscarPresenca cpf dia (sistemaPresenca sistema) of
+           Nothing -> msgInfo "Nenhuma presença registrada para este dia."
+           Just p  -> exibirPresenca (dia, p)
+
+calcularHorasUI :: SistemaBancoDadosRH -> IO ()
+calcularHorasUI sistema = do
+  cabecalho "CÁLCULO DE HORAS TRABALHADAS"
+  cpf <- lerCPF
+
+  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
+    then msgErro "Funcionário não encontrado no sistema."
+    else do
+      ini <- lerData "Data inicial"
+      fim <- lerData "Data final"
+      let total = horasTrabalhadas cpf ini fim (sistemaPresenca sistema)
+      putStrLn ("\nTotal de horas trabalhadas: " ++ show total)
+
+
+calcularFaltasUI :: SistemaBancoDadosRH -> IO ()
+calcularFaltasUI sistema = do
+  cabecalho "FALTAS INJUSTIFICADAS"
+  cpf <- lerCPF
+
+  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
+    then msgErro "Funcionário não encontrado no sistema."
+    else do
+      ini <- lerData "Data inicial"
+      fim <- lerData "Data final"
+      let qtd = faltasInjustificadas cpf ini fim (sistemaPresenca sistema)
+      putStrLn ("\nFaltas injustificadas no período: " ++ show qtd)
+
+-------------------------------------------------
+-- FORMATAÇÃO / EXIBIÇÃO
+-------------------------------------------------
+
+formatarPresenca :: (Day, Presenca) -> String
+formatarPresenca (dia, p)
+  | compareceu p =
+      show dia
+        ++ " | COMPARECEU"
+        ++ " | " ++ show (tipoPresenca p)
+        ++ " | " ++ show (checkIn p)
+        ++ " - " ++ show (checkOut p)
+        ++ " | Depto: " ++ show (idDepartamento p)
+  | otherwise =
+      show dia
+        ++ " |  AUSENTE  "
+        ++ statusJustificativa
+  where
+    statusJustificativa =
+      if null (justificativa p)
+        then " | INJUSTIFICADA"
+        else " | JUSTIFICADA: " ++ justificativa p
+
+exibirPresenca :: (Day, Presenca) -> IO ()
+exibirPresenca = putStrLn . formatarPresenca
+
+exibirRegistroPresencas :: CPF -> SistemaDePresenca -> IO ()
+exibirRegistroPresencas cpf sistema =
+  case Map.lookup cpf (presencasRegistradas sistema) of
+    Nothing ->
+      putStrLn "Nenhum registro de presença encontrado para este CPF."
+    Just mapaDias -> do
+      putStrLn "\nDATA       |   STATUS   | DETALHES"
+      putStrLn "-----------------------------------------------"
+      mapM_ exibirPresenca (Map.toAscList mapaDias)
+
+exibirHistoricoUI :: SistemaBancoDadosRH -> IO ()
+exibirHistoricoUI sistema = do
+  cabecalho "HISTÓRICO DE PRESENÇAS"
+  cpf <- lerCPF
+
+  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
+    then msgErro "Funcionário não encontrado no sistema."
+    else exibirRegistroPresencas cpf (sistemaPresenca sistema)
+
+exibirFeriasDetalhada :: Ferias -> IO ()
+exibirFeriasDetalhada f =
+  putStrLn $
+    "  Período: " ++
+    show (inicioFerias f) ++ " até " ++
+    show (fimFerias f) ++
+    " (" ++ show (diasUtilizados f) ++ " dias) - " ++
+    show (statusFerias f)
+
+exibirResumoCiclo :: CicloFerias -> IO ()
+exibirResumoCiclo c = do
+  let p = periodoConcessivo c
+  putStrLn ""
+  putStrLn ("Período concessivo : "
+    ++ show (inicioConcessivo p)
+    ++ " / "
+    ++ show (fimConcessivo p))
+  putStrLn ("Saldo disponível  : " ++ show (saldoDias c) ++ " dias")
+
+exibirFeriasPersonalizado :: CicloFerias -> IO ()
+exibirFeriasPersonalizado c = do
+  putStrLn ""
+  putStrLn "----------------------------------------"
+  putStrLn ("Ciclo aquisitivo : " ++ show iniAq ++ " / " ++ show fimAq)
+  putStrLn ("Ciclo concessivo : " ++ show iniCon ++ " / " ++ show fimCon)
+  putStrLn ("Status do ciclo  : " ++ show (statusCiclo c))
+  putStrLn ("Saldo disponível : " ++ show (saldoDias c) ++ " dias")
+  putStrLn ""
+  putStrLn "Férias registradas:"
+
+  if null (feriasDoCiclo c)
+    then putStrLn "  Nenhuma férias registrada neste ciclo."
+    else mapM_ exibirFeriasDetalhada (feriasDoCiclo c)
+  where
+    pa = periodoAquisitivo c
+    pc = periodoConcessivo c
+    iniAq = inicioAquisitivo pa
+    fimAq = fimAquisitivo pa
+    iniCon = inicioConcessivo pc
+    fimCon = fimConcessivo pc
+
+exibirFeriasUI :: GerenciadorFerias -> IO GerenciadorFerias
+exibirFeriasUI ger = do
+  cabecalho "CONSULTA DE FÉRIAS"
+  cpf <- lerCPF
+  ref <- lerData "Data de referência"
+
+  case Map.lookup cpf (registros ger) of
+    Nothing -> msgErro "Funcionário não encontrado." >> putStrLn ""
+    Just reg -> do
+      let ciclosAtualizados =
+            map (atualizarCiclo ref)
+              (takeWhile
+                (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
+                (ciclos reg))
+
+          ciclosExibidos =
+            filter
+              (\c ->
+                statusCiclo c /= Esperado ||
+                any (\f ->
+                      statusFerias f == EmAndamento ||
+                      statusFerias f == Concluida)
+                    (feriasDoCiclo c))
+              ciclosAtualizados
+
+      if null ciclosExibidos
+        then msgInfo "Nenhum ciclo relevante encontrado." >> putStrLn ""
+        else mapM_ exibirFeriasPersonalizado ciclosExibidos
+
+  return ger
+
+exibirFuncionario :: Funcionario -> IO ()
+exibirFuncionario f = do
+  putStrLn "--------------------------------"
+  putStrLn ("CPF: " ++ idFunc f)
+  putStrLn ("Nome: " ++ nomeFunc f)
+  putStrLn ("Status: " ++ show (statusFunc f))
+  putStrLn ("Departamento ID: " ++ show (deptoFunc f))
+  putStrLn ("Cargo ID: " ++ show (cargoFunc f))
+
+exibirDepartamento :: Departamento -> IO ()
+exibirDepartamento d = do
+  putStrLn "--------------------------------"
+  putStrLn ("ID: " ++ show (idDepto d))
+  putStrLn ("Nome: " ++ nomeDepto d)
+  putStrLn ("Descrição: " ++ descricaoDepto d)
+  putStrLn ("Gerente: " ++ exibirGerente (idGerenteDepto d))
+  putStrLn ("Qtd Funcionários: " ++ show (qtdFuncionarioDepto d))
+  where
+    exibirGerente Nothing  = "Não definido"
+    exibirGerente (Just g) = show g
+
+
+exibirCargo :: Cargo -> IO ()
+exibirCargo c = do
+  putStrLn "--------------------------------"
+  putStrLn ("ID: " ++ show (idCargo c))
+  putStrLn ("Nome: " ++ nomeCargo c)
+  putStrLn ("Função: " ++ funcaoCargo c)
+  putStrLn ("Carga Horária: " ++ show (cargaHoraria c))
+  putStrLn ("Salário: " ++ show (salario c))
+  putStrLn ("Departamento ID: " ++ show (deptoAssociado c))
+
+-------------------------------------------------
+-- LEITURAS AUXILIARES
 -------------------------------------------------
 
 lerFuncionario :: IO Funcionario
@@ -737,399 +1072,6 @@ lerTipoLicenca = do
     "6" -> return DoacaoSangue
     _   -> msgErro "Opção inválida." >> lerTipoLicenca
 
--------------------------------------------------
--- EXIBIÇÃO
--------------------------------------------------
-
-exibirFuncionario :: Funcionario -> IO ()
-exibirFuncionario f = do
-  putStrLn "--------------------------------"
-  putStrLn ("CPF: " ++ idFunc f)
-  putStrLn ("Nome: " ++ nomeFunc f)
-  putStrLn ("Status: " ++ show (statusFunc f))
-  putStrLn ("Departamento ID: " ++ show (deptoFunc f))
-  putStrLn ("Cargo ID: " ++ show (cargoFunc f))
-
-exibirDepartamento :: Departamento -> IO ()
-exibirDepartamento d = do
-  putStrLn "--------------------------------"
-  putStrLn ("ID: " ++ show (idDepto d))
-  putStrLn ("Nome: " ++ nomeDepto d)
-  putStrLn ("Descrição: " ++ descricaoDepto d)
-  putStrLn ("Gerente: " ++ exibirGerente (idGerenteDepto d))
-  putStrLn ("Qtd Funcionários: " ++ show (qtdFuncionarioDepto d))
-  where
-    exibirGerente Nothing  = "Não definido"
-    exibirGerente (Just g) = show g
-
-
-exibirCargo :: Cargo -> IO ()
-exibirCargo c = do
-  putStrLn "--------------------------------"
-  putStrLn ("ID: " ++ show (idCargo c))
-  putStrLn ("Nome: " ++ nomeCargo c)
-  putStrLn ("Função: " ++ funcaoCargo c)
-  putStrLn ("Carga Horária: " ++ show (cargaHoraria c))
-  putStrLn ("Salário: " ++ show (salario c))
-  putStrLn ("Departamento ID: " ++ show (deptoAssociado c))
-
-
-
-admitirFuncionarioService
-  :: CPF -> Day -> GerenciadorFerias -> Either String GerenciadorFerias
-admitirFuncionarioService = admitirFuncionario
-
-registrarFaltaService
-  :: CPF -> Day -> GerenciadorFerias -> Either String GerenciadorFerias
-registrarFaltaService cpf dia ger = do
-  reg <-
-    maybe
-      (Left "Funcionário não encontrado.")
-      Right
-      (Map.lookup cpf (registros ger))
-
-  regAtualizado <- registrarFalta dia reg
-
-  Right ger {
-    registros = Map.insert cpf regAtualizado (registros ger)
-  }
-
-verificarDireitoService
-  :: CPF -> Day -> GerenciadorFerias -> Either String [CicloFerias]
-verificarDireitoService cpf ref ger = do
-  reg <-
-    maybe
-      (Left "Funcionário não encontrado.")
-      Right
-      (Map.lookup cpf (registros ger))
-
-  let ciclosAtualizados =
-        map (atualizarCiclo ref)
-          (takeWhile
-            (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
-            (ciclos reg))
-
-      ciclosComDireito =
-        filter (temDireitoAFerias ref) ciclosAtualizados
-
-  Right ciclosComDireito
-
-registrarFeriasUI :: GerenciadorFerias -> IO GerenciadorFerias
-registrarFeriasUI ger = do
-  cabecalho "REGISTRO DE FÉRIAS"
-  cpf <- lerCPF
-  fracionada <- lerSN "Férias fracionadas?"
-
-  qtd <- if fracionada then lerQuantidadePeriodos else return 1
-  periodos <- mapM lerPeriodo [1 .. qtd]
-
-  ref <- lerData "Data de referência para validação"
-
-  confirmar "Confirmar registro das férias?" >>= \ok ->
-    if not ok
-      then msgInfo "Registro cancelado." >> putStrLn "" >> return ger
-      else registrarSequencial cpf periodos ref ger
-
-lerQuantidadePeriodos :: IO Int
-lerQuantidadePeriodos = do
-  n <- lerInt "Quantidade de períodos (2 ou 3)"
-  if n < 2 || n > 3
-    then msgErro "Quantidade inválida." >> putStrLn "" >> lerQuantidadePeriodos
-    else return n
-
-lerPeriodo :: Int -> IO (Day, Day)
-lerPeriodo i = do
-  putStrLn ""
-  putStrLn ("Período " ++ show i)
-  ini <- lerData "Data de início"
-  fim <- lerData "Data de fim"
-  return (ini, fim)
-
-exibirFeriasUI :: GerenciadorFerias -> IO GerenciadorFerias
-exibirFeriasUI ger = do
-  cabecalho "CONSULTA DE FÉRIAS"
-  cpf <- lerCPF
-  ref <- lerData "Data de referência"
-
-  case Map.lookup cpf (registros ger) of
-    Nothing -> msgErro "Funcionário não encontrado." >> putStrLn ""
-    Just reg -> do
-      let ciclosAtualizados =
-            map (atualizarCiclo ref)
-              (takeWhile
-                (\c -> inicioAquisitivo (periodoAquisitivo c) <= ref)
-                (ciclos reg))
-
-          ciclosExibidos =
-            filter
-              (\c ->
-                statusCiclo c /= Esperado ||
-                any (\f ->
-                      statusFerias f == EmAndamento ||
-                      statusFerias f == Concluida)
-                    (feriasDoCiclo c))
-              ciclosAtualizados
-
-      if null ciclosExibidos
-        then msgInfo "Nenhum ciclo relevante encontrado." >> putStrLn ""
-        else mapM_ exibirFeriasPersonalizado ciclosExibidos
-
-  return ger
-
-verificarDireitoUI :: GerenciadorFerias -> IO ()
-verificarDireitoUI ger = do
-  cabecalho "VERIFICAÇÃO DE DIREITO A FÉRIAS"
-  cpf <- lerCPF
-  ref <- lerData "Data de referência"
-
-  case verificarDireitoService cpf ref ger of
-    Left err -> msgErro err >> putStrLn ""
-    Right [] -> msgInfo "Funcionário ainda não possui direito a férias." >> putStrLn ""
-    Right cs -> do
-      msgSucesso "Funcionário possui direito a férias."
-      mapM_ exibirResumoCiclo cs
-
-exibirResumoCiclo :: CicloFerias -> IO ()
-exibirResumoCiclo c = do
-  let p = periodoConcessivo c
-  putStrLn ""
-  putStrLn ("Período concessivo : "
-    ++ show (inicioConcessivo p)
-    ++ " / "
-    ++ show (fimConcessivo p))
-  putStrLn ("Saldo disponível  : " ++ show (saldoDias c) ++ " dias")
-
-exibirFeriasPersonalizado :: CicloFerias -> IO ()
-exibirFeriasPersonalizado c = do
-  putStrLn ""
-  putStrLn "----------------------------------------"
-  putStrLn ("Ciclo aquisitivo : " ++ show iniAq ++ " / " ++ show fimAq)
-  putStrLn ("Ciclo concessivo : " ++ show iniCon ++ " / " ++ show fimCon)
-  putStrLn ("Status do ciclo  : " ++ show (statusCiclo c))
-  putStrLn ("Saldo disponível : " ++ show (saldoDias c) ++ " dias")
-  putStrLn ""
-  putStrLn "Férias registradas:"
-
-  if null (feriasDoCiclo c)
-    then putStrLn "  Nenhuma férias registrada neste ciclo."
-    else mapM_ exibirFeriasDetalhada (feriasDoCiclo c)
-  where
-    pa = periodoAquisitivo c
-    pc = periodoConcessivo c
-    iniAq = inicioAquisitivo pa
-    fimAq = fimAquisitivo pa
-    iniCon = inicioConcessivo pc
-    fimCon = fimConcessivo pc
-
-exibirFeriasDetalhada :: Ferias -> IO ()
-exibirFeriasDetalhada f =
-  putStrLn $
-    "  Período: " ++
-    show (inicioFerias f) ++ " até " ++
-    show (fimFerias f) ++
-    " (" ++ show (diasUtilizados f) ++ " dias) - " ++
-    show (statusFerias f)
-
-criarFerias :: Day -> Day -> Ferias
-criarFerias ini fim =
-  Ferias ini fim (fromIntegral (diffDays fim ini) + 1) Planejada
-
-registrarSequencial
-  :: CPF -> [(Day, Day)] -> Day -> GerenciadorFerias -> IO GerenciadorFerias
-registrarSequencial _ [] _ ger =
-  msgSucesso "Férias registradas com sucesso." >> putStrLn "" >> return ger
-
-registrarSequencial cpf ((ini, fim):xs) ref ger = do
-  let ferias = criarFerias ini fim
-  case registrarFerias cpf ferias ref ger of
-    Left err -> msgErro err >> putStrLn "" >> return ger
-    Right g  -> registrarSequencial cpf xs ref g
-
--- Função auxiliar que registra a falta no Gerenciador de Férias
-atualizarFeriasComFalta ::
-  CPF ->
-  Day ->
-  GerenciadorFerias ->
-  IO GerenciadorFerias
-atualizarFeriasComFalta cpf dia ger =
-  case Map.lookup cpf (registros ger) of
-    Nothing -> do
-      msgErro "Funcionário não encontrado no sistema de férias."
-      return ger
-    Just reg ->
-      case registrarFalta dia reg of
-        Left err -> do
-          msgErro ("Erro ao registrar falta no sistema de férias: " ++ err)
-          return ger
-        Right regAtualizado ->
-          return ger { registros = Map.insert cpf regAtualizado (registros ger) }
-
-
--- UI de registro de presença
-registrarPresencaUI :: SistemaBancoDadosRH -> IO SistemaBancoDadosRH
-registrarPresencaUI sistema = do
-  cabecalho "REGISTRO DE PRESENÇA"
-
-  cpf <- lerCPF
-
-  -- Verifica se o funcionário existe no sistema
-  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
-    then do
-      msgErro "Funcionário não encontrado no sistema."
-      return sistema
-    else do
-      dia <- lerData "Data da presença"
-      deptoId <- lerInt "ID do departamento"
-      compareceuFlag <- lerSN "Funcionário compareceu?"
-
-      presenca <- if compareceuFlag
-                   then do
-                     modalidade <- lerModalidade
-                     entrada <- lerHora "Horário de entrada"
-                     saida <- lerHora "Horário de saída"
-                     return Presenca
-                       { idDepartamento = deptoId
-                       , tipoPresenca = modalidade
-                       , checkIn = entrada
-                       , checkOut = saida
-                       , compareceu = True
-                       , justificativa = ""
-                       }
-                   else do
-                     just <- lerLinha "Justificativa (vazio para injustificada)"
-                     return Presenca
-                       { idDepartamento = deptoId
-                       , tipoPresenca = Presencial
-                       , checkIn = midnight
-                       , checkOut = midnight
-                       , compareceu = False
-                       , justificativa = just
-                       }
-
-      -- Registra presença no sistema
-      let resultadoPres = registrarPresenca cpf dia presenca (sistemaPresenca sistema)
-      sistemaAtualizado <- case resultadoPres of
-        Left err -> do
-          msgErro err
-          return sistema
-        Right presAtualizado -> do
-          msgSucesso "Presença registrada com sucesso."
-
-          -- Se não compareceu, registra a falta no sistema de férias
-          let gerFerias = sistemaFerias sistema
-          sistemaComFalta <- if not compareceuFlag
-                             then case Map.lookup cpf (registros gerFerias) of
-                                    Nothing -> do
-                                      msgErro "Funcionário não encontrado no sistema de férias."
-                                      return sistema { sistemaPresenca = presAtualizado }
-                                    Just reg -> case registrarFalta dia reg of
-                                                  Left errF -> do
-                                                    msgErro ("Erro ao registrar falta no sistema de férias: " ++ errF)
-                                                    return sistema { sistemaPresenca = presAtualizado }
-                                                  Right regAtualizado -> do
-                                                    let gerAtualizado = gerFerias { registros = Map.insert cpf regAtualizado (registros gerFerias) }
-                                                    return sistema { sistemaPresenca = presAtualizado
-                                                                   , sistemaFerias = gerAtualizado }
-                             else return sistema { sistemaPresenca = presAtualizado }
-
-          return sistemaComFalta
-
-      return sistemaAtualizado
-
-
-
-
-consultarPresencaUI :: SistemaBancoDadosRH -> IO ()
-consultarPresencaUI sistema = do
-  cabecalho "CONSULTA DE PRESENÇA"
-  cpf <- lerCPF
-  dia <- lerData "Data a consultar"
-
-  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
-    then msgErro "Funcionário não encontrado no sistema."
-    else case buscarPresenca cpf dia (sistemaPresenca sistema) of
-           Nothing -> msgInfo "Nenhuma presença registrada para este dia."
-           Just p  -> exibirPresenca (dia, p)
-
-
-exibirHistoricoUI :: SistemaBancoDadosRH -> IO ()
-exibirHistoricoUI sistema = do
-  cabecalho "HISTÓRICO DE PRESENÇAS"
-  cpf <- lerCPF
-
-  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
-    then msgErro "Funcionário não encontrado no sistema."
-    else exibirRegistroPresencas cpf (sistemaPresenca sistema)
-
-
-calcularHorasUI :: SistemaBancoDadosRH -> IO ()
-calcularHorasUI sistema = do
-  cabecalho "CÁLCULO DE HORAS TRABALHADAS"
-  cpf <- lerCPF
-
-  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
-    then msgErro "Funcionário não encontrado no sistema."
-    else do
-      ini <- lerData "Data inicial"
-      fim <- lerData "Data final"
-      let total = horasTrabalhadas cpf ini fim (sistemaPresenca sistema)
-      putStrLn ("\nTotal de horas trabalhadas: " ++ show total)
-
-
-calcularFaltasUI :: SistemaBancoDadosRH -> IO ()
-calcularFaltasUI sistema = do
-  cabecalho "FALTAS INJUSTIFICADAS"
-  cpf <- lerCPF
-
-  if not (any (\f -> idFunc f == cpf) (funcionarios sistema))
-    then msgErro "Funcionário não encontrado no sistema."
-    else do
-      ini <- lerData "Data inicial"
-      fim <- lerData "Data final"
-      let qtd = faltasInjustificadas cpf ini fim (sistemaPresenca sistema)
-      putStrLn ("\nFaltas injustificadas no período: " ++ show qtd)
-
-
--------------------------------------------------
--- FORMATAÇÃO / EXIBIÇÃO
--------------------------------------------------
-
-formatarPresenca :: (Day, Presenca) -> String
-formatarPresenca (dia, p)
-  | compareceu p =
-      show dia
-        ++ " | COMPARECEU"
-        ++ " | " ++ show (tipoPresenca p)
-        ++ " | " ++ show (checkIn p)
-        ++ " - " ++ show (checkOut p)
-        ++ " | Depto: " ++ show (idDepartamento p)
-  | otherwise =
-      show dia
-        ++ " |  AUSENTE  "
-        ++ statusJustificativa
-  where
-    statusJustificativa =
-      if null (justificativa p)
-        then " | INJUSTIFICADA"
-        else " | JUSTIFICADA: " ++ justificativa p
-
-exibirPresenca :: (Day, Presenca) -> IO ()
-exibirPresenca = putStrLn . formatarPresenca
-
-exibirRegistroPresencas :: CPF -> SistemaDePresenca -> IO ()
-exibirRegistroPresencas cpf sistema =
-  case Map.lookup cpf (presencasRegistradas sistema) of
-    Nothing ->
-      putStrLn "Nenhum registro de presença encontrado para este CPF."
-    Just mapaDias -> do
-      putStrLn "\nDATA       |   STATUS   | DETALHES"
-      putStrLn "-----------------------------------------------"
-      mapM_ exibirPresenca (Map.toAscList mapaDias)
-
--------------------------------------------------
--- LEITURAS AUXILIARES
--------------------------------------------------
-
 lerModalidade :: IO Modalidade
 lerModalidade = do
   putStrLn "Modalidade:"
@@ -1142,12 +1084,10 @@ lerModalidade = do
     "2" -> return Remoto
     _   -> msgErro "Opção inválida." >> lerModalidade
 
-lerHora :: String -> IO TimeOfDay
-lerHora msg = do
-  putStrLn msg
-  h <- lerInt "Hora (0-23)"
-  m <- lerInt "Minuto (0-59)"
-
-  if h < 0 || h > 23 || m < 0 || m > 59
-    then msgErro "Horário inválido." >> lerHora msg
-    else return (TimeOfDay h m 0)
+lerPeriodo :: Int -> IO (Day, Day)
+lerPeriodo i = do
+  putStrLn ""
+  putStrLn ("Período " ++ show i)
+  ini <- lerData "Data de início"
+  fim <- lerData "Data de fim"
+  return (ini, fim)

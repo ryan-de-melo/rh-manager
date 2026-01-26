@@ -18,6 +18,12 @@ novoIdAfastamento afastamentos = maximum (map idAfastamento afastamentos) + 1
 validarPeriodoAfastamento :: Afastamento -> Bool
 validarPeriodoAfastamento a = dataInicioAfastamento a <= dataFimAfastamento a
 
+tipoExigeDocumentacao :: TipoAfastamento -> Bool
+tipoExigeDocumentacao AfastamentoMedico   = True
+tipoExigeDocumentacao AcidenteDeTrabalho  = True
+tipoExigeDocumentacao AusenciaJustificada = True
+tipoExigeDocumentacao _                   = False
+
 -- Verifica se dois afastamentos conflitam (mesmo funcionário e períodos que se sobrepõem).
 conflita :: Afastamento -> Afastamento -> Bool  
 conflita a1 a2 =
